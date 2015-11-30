@@ -16,25 +16,28 @@ using namespace std;
 class HashTable
 {
 private:
-	int m = pow(2, 4);		// hash table size
+	int m = 13;		// hash table size
+	int w;
+	int k;
+	int* a;			// salt
 	int customerId = 0;
 	SLItemList** userT = new SLItemList*[m];	// initialize a hash table of singly linked item lists
-	
 
 	// internal functions
-	int hash(string userId);	// hash function to generate index
-	
+	int hash(string userId);	// basic hash function 
+	int multHash(string userId);	// prime multiplicative hash function
 	float getLoad();
 	void reallocate();
 	int* char2num16(string userId);
 	int* numToBitSeq(int n);
 	int* num162bit96(int* n);
-	int* bitSeqToDigitSeq(int* bs, int w);
-	int bitSeqToBigNum(int* bs, int w);
-	int* generateSalt(int w);
-	int scalarMult(int* a, int* x, int k);
-	int multHash(int* x, int w);
-	
+	int* bitSeqToDigitSeq(int* bs);
+	int bitSeqToBigNum(int* bs);
+	int* generateSalt();
+	int scalarMult(int* x);
+	int* sieve(int n);
+	int nextPrime();
+
 public:
 	// Admin functions
 	HashTable();				//Constructor
@@ -45,7 +48,7 @@ public:
 	void add(string userId, int customerId);
 	void show();
 	bool isAvailable(string userId);
-	int lookupCustomerId(string userId);
+	int lookupCustomerId(string userId);	
 };
 
 // Default constructor
@@ -54,6 +57,9 @@ HashTable::HashTable()
 	//Initialize all the elements in the hashtable
 	for (int i = 0; i < m; i++)
 		userT[i] = new SLItemList();
+	w = log(m) / log(2);
+	k = 96 / w;
+	a = generateSalt();
 }
 
 HashTable::~HashTable()
@@ -89,12 +95,8 @@ void HashTable::add(string userId)
 		reallocate();
 	}
 
-	customerId++;		
-	int w = log(m) / log(2);
-	int* num16 = char2num16(userId);
-	int* bit96 = num162bit96(num16);
-	int* x = bitSeqToDigitSeq(bit96, w);
-	int index = multHash(x, w);
+	customerId++;
+	int index = multHash(userId);
 	//int index = hash(userId);	
 	userT[index]->pushFront(userId, customerId);
 }
@@ -102,16 +104,12 @@ void HashTable::add(string userId)
 // add - Used in reallocate. CustomerId is already known.
 void HashTable::add(string userId, int customerId)
 {
-	int w = log(m) / log(2);
-	int* num16 = char2num16(userId);
-	int* bit96 = num162bit96(num16);
-	int* x = bitSeqToDigitSeq(bit96, w);
-	int index = multHash(x, w);
+	int index = multHash(userId);
 	//int index = hash(userId);
 	userT[index]->pushFront(userId, customerId);
 }
 
-void HashTable::show() 
+void HashTable::show()
 {
 	for (int i = 0; i < m; i++) {
 		SItem* curr = userT[i]->getHeader();
@@ -126,9 +124,9 @@ void HashTable::show()
 	cout << endl;
 }
 
-bool HashTable::isAvailable(string userId) 
+bool HashTable::isAvailable(string userId)
 {
-	int index = hash(userId);
+	int index = multHash(userId);
 	SItem* curr = userT[index]->find(userId);
 
 	if (curr)
@@ -157,7 +155,7 @@ int HashTable::lookupCustomerId(string userId)
 	return 0;
 }
 
-float HashTable::getLoad() 
+float HashTable::getLoad()
 {
 	return float(customerId) / float(m);
 }
@@ -165,7 +163,10 @@ float HashTable::getLoad()
 void HashTable::reallocate()
 {
 	int prevM = m;
-	m = m * 2;
+	m = nextPrime();
+	w = log(m) / log(2);
+	k = 96 / w;
+	a = generateSalt();
 
 	SLItemList** prevUserT = userT;
 	userT = new SLItemList*[m]; // intialize a new userT of size m * 2
@@ -191,13 +192,13 @@ void HashTable::reallocate()
 
 int* HashTable::char2num16(string userId)
 {
-	char charArr[64] = {'_', '0', '1', '2','3', '4', '5', '6', '7', '8', '9'
-					   , '10', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'
-					   , 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's'
-					   , 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C'
-					   , 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'
-				       , 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W'
-				       , 'X', 'Y', 'Z'};
+	char charArr[64] = { '_', '0', '1', '2','3', '4', '5', '6', '7', '8', '9'
+		, '10', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'
+		, 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's'
+		, 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C'
+		, 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'
+		, 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W'
+		, 'X', 'Y', 'Z' };
 
 	int* num16 = new int[16];
 
@@ -211,7 +212,7 @@ int* HashTable::char2num16(string userId)
 	for (int i = userId.length() - 1; i > -1; i--)
 	{
 		int j = 0;
-		while(userId[i] != charArr[j])
+		while (userId[i] != charArr[j])
 		{
 			j++;
 		}
@@ -229,7 +230,7 @@ int* HashTable::numToBitSeq(int n)
 	// initialize bits to 0
 	for (int i = 0; i < 6; i++)
 	{
-		bs[i] = 0;	
+		bs[i] = 0;
 	}
 
 	int i = 5;
@@ -247,7 +248,7 @@ int* HashTable::num162bit96(int* n)
 {
 	int* bitSeq96 = new int[96];
 	int i = 0;
-	while ( i < 96 )
+	while (i < 96)
 	{
 		for (int j = 0; j < 16; j++)
 		{
@@ -262,12 +263,11 @@ int* HashTable::num162bit96(int* n)
 	return bitSeq96;
 }
 
-int* HashTable::bitSeqToDigitSeq(int* bs, int w)
+int* HashTable::bitSeqToDigitSeq(int* bs)
 {
-	int k = 96 / w;
 	int* ds = new int[k];
 	int* bitSeqW = new int[w];
-	
+
 	int i = 0; // pos in bs
 	int l = 0; // pos in ds
 	while (i < 96 && l < k)
@@ -277,46 +277,46 @@ int* HashTable::bitSeqToDigitSeq(int* bs, int w)
 			bitSeqW[j] = bs[i];
 			i++;
 		}
-		ds[l] = bitSeqToBigNum(bitSeqW, w);
+		ds[l] = bitSeqToBigNum(bitSeqW);
 		l++;
 	}
 	return ds;
 }
 
-int HashTable::bitSeqToBigNum(int* bs, int w)
+int HashTable::bitSeqToBigNum(int* bs)
 {
 	int bn = 0;
 	int j = 0; // base pos 
 	for (int i = w - 1; i > -1; i--)
 	{
-		bn += bs[i] * pow(2,j);
+		bn += bs[i] * pow(2, j);
 		j++;
 	}
 	return bn;
 }
 
-int* HashTable::generateSalt(int w)
+int* HashTable::generateSalt()
 {
-	int k = 96 / w;
 	int* a = new int[k];	// salt
 	int b = pow(2, w);		// base
 	int n;
 	srand(time(NULL));
-
 	std::random_device rd; // obtain a random number from hardware
 	std::mt19937 eng(rd()); // seed the generator
 	std::uniform_int_distribution<> distr(0, b - 1); // define the range
 
+	//srand((int)time(0));
+
 	for (int i = 0; i < k; i++)
 	{
 		a[i] = distr(eng);
+		//a[i] = (rand() % k);
 	}
 	return a;
 }
 
-int HashTable::scalarMult(int* a, int* x, int w)
+int HashTable::scalarMult(int* x)
 {
-	int k = 96 / w;
 	int res = 0;
 	for (int i = 0; i < k; i++)
 	{
@@ -325,9 +325,44 @@ int HashTable::scalarMult(int* a, int* x, int w)
 	return res;
 }
 
-int HashTable::multHash(int* x, int w)
+int HashTable::multHash(string userId)
 {
-	int* a = generateSalt(w);
-	return scalarMult(a, x, w) % m;
+	int* num16 = char2num16(userId);
+	int* bit96 = num162bit96(num16);
+	int* x = bitSeqToDigitSeq(bit96);
+	return scalarMult(x) % m;
+}
+
+int* HashTable::sieve(int n)
+{
+	int* arr = new int[n];
+	for (int i = 0; i < n; i++)
+	{
+		arr[i] = 1;
+	}
+	for (int i = 2; i < sqrt(n); i++)
+	{
+		if (arr[i])
+		{
+			for (int j = 2*i; j < n; j += i)
+			{
+				arr[j] = 0;
+			}
+		}
+	}
+	return arr;
+}
+
+int HashTable::nextPrime()
+{
+	int r = ceil(pow(pow(2, w+1), float(1) / float(3))) - 1;
+	int pMax = pow(r + 2, 3);
+	int* primes = sieve(pMax);
+	int lowBound = pow(2, w + 1);
+	int i = lowBound;
+	while (!primes[i]) {
+		i++;
+	}
+	return i;
 }
 #endif // HASHTABLE_H_INCLUDED
