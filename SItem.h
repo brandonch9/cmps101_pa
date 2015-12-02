@@ -1,5 +1,5 @@
 // Brandon Chai, Fall 2015
-// SItem for Hash Table 
+// SItem for SLItemList
 // CMPS 101 Programming Assignment
 
 #ifndef SITEM_H_INCLUDED
